@@ -146,6 +146,13 @@
       color: #999;
     }
 
+    #connect-error {
+      color: red;
+      font-size: 14px;
+      margin-top: 12px;
+      text-align: center;
+    }
+
     #status-message {
       margin-top: 20px;
       font-size: 14px;
@@ -183,6 +190,7 @@
       <input id="obs-port" type="number" placeholder="Port" value="4455" />
       <input id="obs-password" type="password" placeholder="Password" />
       <button onclick="initiateConnection()">Connect</button>
+      <div id="connect-error"></div>
     </div>
   </div>
 
@@ -210,6 +218,7 @@
     let timerIntervalId = null;
 
     function showModal() {
+      document.getElementById("connect-error").textContent = "";
       document.getElementById("connect-modal").style.display = "flex";
     }
 
@@ -237,6 +246,7 @@
       PASSWORD = document.getElementById("obs-password").value.trim();
       OBS_WS_URL = `ws://${ip}:${port}`;
       showStatus("Connecting...");
+      document.getElementById("connect-error").textContent = "";
       connectOBS();
     }
 
@@ -264,7 +274,7 @@
             d: { rpcVersion: 1, authentication: authBase64 }
           }));
 
-          PASSWORD = ""; // clear from memory
+          PASSWORD = "";
         }
 
         if (msg.op === 2) {
@@ -327,6 +337,7 @@
 
       socket.onerror = err => {
         showStatus("Connection error.");
+        document.getElementById("connect-error").textContent = "Failed to connect. Please check your IP, port, or password.";
         console.error("WebSocket error:", err);
         document.getElementById("connect-btn").textContent = "Connect";
         showDisconnectedMessage();
@@ -344,7 +355,7 @@
 
     function showDisconnectedMessage() {
       showStatus("OBS not connected.");
-      document.getElementById("media-title").textContent = "OBS not connected.";
+      document.getElementById("media-title").textContent = "No active media source.";
       document.getElementById("active-timer-value").textContent = "00:00";
       document.getElementById("other-timer").classList.add("hidden");
     }
