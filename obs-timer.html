@@ -1,0 +1,420 @@
+<!--
+  OBS Media Timer
+  https://github.com/realmchua/obs-media-timer
+  © 2025 Realm Chua
+
+  This file is open source under the MIT License.
+  You are free to use, modify, and distribute it with attribution.
+
+  Licensed under the MIT License:
+  https://opensource.org/licenses/MIT
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>OBS Media Timer</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      padding: 40px;
+      background: #000000;
+      color: #ffffff;
+      text-align: center;
+      position: relative;
+    }
+
+    h1 {
+      font-size: 28px;
+      margin-bottom: 10px;
+    }
+
+    #active-timer-value {
+      font-size: 120px;
+      font-weight: bold;
+      margin-bottom: 30px;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 40px;
+    }
+
+    .card {
+      display: none !important;
+    }
+
+    .card.hidden {
+      display: none !important;
+    }
+
+    .source-time {
+      display: flex;
+      align-items: center;
+      margin: 12px 0;
+      padding: 14px 20px;
+      background: #f4f8fb;
+      border-radius: 12px;
+      position: relative;
+      font-size: 16px;
+    }
+
+    .source-time::before {
+      content: '';
+      display: block;
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 6px;
+      border-top-left-radius: 12px;
+      border-bottom-left-radius: 12px;
+      background-color: #007acc;
+    }
+
+    .source-time.warning {
+      background: #fff3cd;
+      color: #856404;
+      font-weight: bold;
+    }
+
+    .source-time.warning::before {
+      background-color: #ffc107;
+    }
+
+    #connect-btn {
+      position: absolute;
+      top: 20px;
+      right: 30px;
+      background: #ffffff;
+      color: #000000;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    #connect-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #connect-modal .modal-content {
+      background: #fff;
+      color: #000;
+      padding: 30px;
+      border-radius: 16px;
+      width: 300px;
+      text-align: left;
+    }
+
+    #connect-modal input {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      margin-bottom: 20px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+
+    #connect-modal button {
+      width: 100%;
+      padding: 10px;
+      font-weight: bold;
+      border: none;
+      background-color: #007acc;
+      color: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    #connect-modal .close {
+      float: right;
+      font-size: 18px;
+      cursor: pointer;
+      color: #999;
+    }
+
+    #status-message {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #ccc;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 60px;
+      font-size: 14px;
+      color: #666;
+    }
+
+    @media (max-width: 600px) {
+      .card {
+        padding: 16px;
+        font-size: 14px;
+      }
+
+      #active-timer-value {
+        font-size: 72px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <button id="connect-btn" onclick="toggleConnection()">Connect</button>
+
+  <div id="connect-modal">
+    <div class="modal-content">
+      <span class="close" onclick="hideModal()">×</span>
+      <h3>Connect to OBS</h3>
+      <input id="obs-ip" type="text" placeholder="IP address" value="localhost" />
+      <input id="obs-port" type="number" placeholder="Port" value="4455" />
+      <input id="obs-password" type="password" placeholder="Password" />
+      <button onclick="initiateConnection()">Connect</button>
+    </div>
+  </div>
+
+  <h1 id="media-title">No active media sources.</h1>
+  <div id="active-timer-value">00:00</div>
+
+  <div id="status-message"></div>
+
+  <div class="container">
+    <div class="card hidden" id="other-timer">
+      <!-- Inactive media will appear here -->
+    </div>
+  </div>
+
+  <footer>
+    © Copyright by <strong>Realm Chua</strong> 2025 – All rights reserved.
+  </footer>
+
+  <script>
+    let OBS_WS_URL = "";
+    let PASSWORD = "";
+    let socket;
+    let mediaSources = [];
+    let remainingTimes = {};
+    let timerIntervalId = null;
+
+    function showModal() {
+      document.getElementById("connect-modal").style.display = "flex";
+    }
+
+    function hideModal() {
+      document.getElementById("connect-modal").style.display = "none";
+    }
+
+    function showStatus(message) {
+      document.getElementById("status-message").textContent = message;
+    }
+
+    function toggleConnection() {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+        document.getElementById("connect-btn").textContent = "Connect";
+        showDisconnectedMessage();
+      } else {
+        showModal();
+      }
+    }
+
+    function initiateConnection() {
+      const ip = document.getElementById("obs-ip").value.trim();
+      const port = document.getElementById("obs-port").value.trim();
+      PASSWORD = document.getElementById("obs-password").value.trim();
+      OBS_WS_URL = `ws://${ip}:${port}`;
+      showStatus("Connecting...");
+      connectOBS();
+    }
+
+    function connectOBS() {
+      socket = new WebSocket(OBS_WS_URL);
+
+      socket.onopen = () => {
+        showStatus("Connected. Authenticating...");
+        hideModal();
+      };
+
+      socket.onmessage = async (event) => {
+        const msg = JSON.parse(event.data);
+
+        if (msg.op === 0 && msg.d.authentication) {
+          const { challenge, salt } = msg.d.authentication;
+          const encoder = new TextEncoder();
+          const salted = await crypto.subtle.digest("SHA-256", encoder.encode(PASSWORD + salt));
+          const saltedBase64 = btoa(String.fromCharCode(...new Uint8Array(salted)));
+          const auth = await crypto.subtle.digest("SHA-256", encoder.encode(saltedBase64 + challenge));
+          const authBase64 = btoa(String.fromCharCode(...new Uint8Array(auth)));
+
+          socket.send(JSON.stringify({
+            op: 1,
+            d: { rpcVersion: 1, authentication: authBase64 }
+          }));
+
+          PASSWORD = ""; // clear from memory
+        }
+
+        if (msg.op === 2) {
+          showStatus("Authenticated.");
+          document.getElementById("connect-btn").textContent = "Disconnect";
+          document.getElementById("other-timer").classList.remove("hidden");
+          requestInputList();
+        }
+
+        if (msg.op === 7) {
+          if (msg.d.requestType === "GetInputList") {
+            mediaSources = msg.d.responseData.inputs
+              .filter(input => input.inputKind === "ffmpeg_source")
+              .map(input => input.inputName);
+
+            if (mediaSources.length === 0) {
+              document.getElementById("other-timer").innerHTML =
+                `<div class="source-time warning">No media sources found.</div>`;
+              document.getElementById("other-timer").classList.add("hidden");
+              return;
+            }
+
+            startTimerLoop();
+          }
+
+          if (msg.d.requestType === "GetMediaInputStatus") {
+            const source = msg.d.requestId.replace("check-", "");
+            const data = msg.d.responseData;
+
+            if (msg.d.requestStatus.result === true) {
+              if (data) {
+                const { mediaCursor, mediaDuration, mediaState } = data;
+                let state = mediaState?.replace("OBS_MEDIA_STATE_", "").toLowerCase();
+
+                if (state === "playing") {
+                  if (mediaDuration != null && mediaCursor != null) {
+                    const remaining = Math.max(mediaDuration - mediaCursor, 0) / 1000;
+                    remainingTimes[source] = formatMMSS(remaining);
+                  } else if (mediaCursor != null) {
+                    remainingTimes[source] = `Cursor: ${Math.floor(mediaCursor / 1000)}s (Duration unknown)`;
+                  } else {
+                    remainingTimes[source] = "Playing (No time info)";
+                  }
+                } else if (state === "ended") {
+                  remainingTimes[source] = "Not playing";
+                } else {
+                  remainingTimes[source] = state.charAt(0).toUpperCase() + state.slice(1);
+                }
+              } else {
+                remainingTimes[source] = "No data";
+              }
+            } else {
+              remainingTimes[source] = "Not available";
+            }
+
+            updateDisplay();
+          }
+        }
+      };
+
+      socket.onerror = err => {
+        showStatus("Connection error.");
+        console.error("WebSocket error:", err);
+        document.getElementById("connect-btn").textContent = "Connect";
+        showDisconnectedMessage();
+      };
+
+      socket.onclose = () => {
+        console.warn("OBS WebSocket disconnected.");
+        if (timerIntervalId) clearInterval(timerIntervalId);
+        timerIntervalId = null;
+        socket = null;
+        document.getElementById("connect-btn").textContent = "Connect";
+        showDisconnectedMessage();
+      };
+    }
+
+    function showDisconnectedMessage() {
+      showStatus("OBS not connected.");
+      document.getElementById("media-title").textContent = "OBS not connected.";
+      document.getElementById("active-timer-value").textContent = "00:00";
+      document.getElementById("other-timer").classList.add("hidden");
+    }
+
+    function requestInputList() {
+      socket.send(JSON.stringify({
+        op: 6,
+        d: {
+          requestType: "GetInputList",
+          requestId: "get-inputs"
+        }
+      }));
+    }
+
+    function startTimerLoop() {
+      if (timerIntervalId) clearInterval(timerIntervalId);
+
+      timerIntervalId = setInterval(() => {
+        for (const name of mediaSources) {
+          socket.send(JSON.stringify({
+            op: 6,
+            d: {
+              requestType: "GetMediaInputStatus",
+              requestId: `check-${name}`,
+              requestData: { inputName: name }
+            }
+          }));
+        }
+      }, 1000);
+    }
+
+    function formatMMSS(seconds) {
+      const min = Math.floor(seconds / 60);
+      const sec = Math.floor(seconds % 60);
+      return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+    }
+
+    function updateDisplay() {
+      const title = document.getElementById("media-title");
+      const timerValue = document.getElementById("active-timer-value");
+      const otherDiv = document.getElementById("other-timer");
+
+      let otherHTML = "";
+      let activeTitle = "";
+      let currentTime = "00:00";
+
+      Object.entries(remainingTimes).forEach(([source, time]) => {
+        const isActive = time.includes(":");
+
+        if (isActive && !activeTitle) {
+          activeTitle = source;
+          currentTime = time;
+        } else {
+          const display = `<strong>${source}</strong>: ${time}`;
+          const entryHTML = `<div class="source-time">${display}</div>`;
+          otherHTML += entryHTML;
+        }
+      });
+
+      const newTitle = activeTitle ? `Now playing: ${activeTitle}` : "No active media sources.";
+      if (title.textContent !== newTitle) title.textContent = newTitle;
+      if (timerValue.textContent !== currentTime) timerValue.textContent = currentTime;
+
+      if (otherHTML) {
+        otherDiv.innerHTML = otherHTML;
+        otherDiv.classList.remove("hidden");
+      } else {
+        otherDiv.classList.add("hidden");
+      }
+    }
+  </script>
+</body>
+</html>
